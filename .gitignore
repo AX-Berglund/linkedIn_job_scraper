@@ -1,6 +1,9 @@
 # Environment variables (contains credentials)
 .env
 
+# Configuration (user-specific settings)
+config.json
+
 # Python
 __pycache__/
 *.py[cod]

@@ -43,6 +43,40 @@ Automated LinkedIn job scraper that logs in, searches for jobs, and saves them t
    
    Replace `your_email@example.com` and `your_password_here` with your actual credentials.
 
+4. **Configure your job search** by editing `config.json`:
+   ```json
+   {
+     "search": {
+       "keywords": "data scientist",
+       "location": "Stockholm",
+       "max_pages": 3,
+       "start_page": 1
+     }
+   }
+   ```
+   
+   - `keywords`: Job search terms (e.g., "software engineer", "data analyst")
+   - `location`: Job location (e.g., "New York", "London", "Remote")
+   - `max_pages`: Number of pages to scrape (each page has ~25 jobs)
+   - `start_page`: Page number to start from (default: 1)
+   
+   💡 **Tip:** See `config.json.example` for more examples.
+   
+   ### Resume Scraping from a Specific Page
+   
+   If you've already scraped pages 1-10 and want to continue from page 11:
+   ```json
+   {
+     "search": {
+       "keywords": "data scientist",
+       "location": "Stockholm",
+       "max_pages": 10,
+       "start_page": 11
+     }
+   }
+   ```
+   This will scrape pages 11-20 (LinkedIn results from position 500-999).
+
 ## 🎯 Usage
 
 ### Run the scraper:
@@ -55,8 +89,8 @@ The scraper will:
 2. Navigate to LinkedIn
 3. Click "Reject" on cookie consent
 4. Log in with your credentials
-5. Search for "data scientist" jobs in "Stockholm"
-6. Scrape up to 10 pages (500 jobs)
+5. Search for jobs using your `config.json` settings
+6. Scrape the specified number of pages (~25 jobs per page)
 7. Save all jobs to `jobs.db`
 
 ### View scraped jobs:

@@ -8,17 +8,45 @@ from playwright.sync_api import sync_playwright, Page
 import time
 import os
 import re
+import json
 from dotenv import load_dotenv
 from database import JobDatabase
 
 # Load environment variables from .env file
 load_dotenv()
 
-# Configuration
-SEARCH_KEYWORDS = "data scientist"
-SEARCH_LOCATION = "Stockholm"
-MAX_PAGES = 3  # Maximum number of pages to scrape
-PAGE_INCREMENT = 50  # LinkedIn pagination increment
+# Load configuration from config.json
+def load_config():
+    """Load configuration from config.json file."""
+    config_path = os.path.join(os.path.dirname(__file__), 'config.json')
+    try:
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+        return config['search']
+    except FileNotFoundError:
+        print("⚠️  config.json not found. Using default values.")
+        return {
+            'keywords': 'data scientist',
+            'location': 'Stockholm',
+            'max_pages': 3,
+            'start_page': 1
+        }
+    except Exception as e:
+        print(f"⚠️  Error loading config.json: {e}. Using default values.")
+        return {
+            'keywords': 'data scientist',
+            'location': 'Stockholm',
+            'max_pages': 3,
+            'start_page': 1
+        }
+
+# Load configuration
+config = load_config()
+SEARCH_KEYWORDS = config['keywords']
+SEARCH_LOCATION = config['location']
+MAX_PAGES = config['max_pages']
+START_PAGE = config.get('start_page', 1)  # Default to page 1 if not specified
+PAGE_INCREMENT = 50  # LinkedIn pagination increment (fixed)
 
 
 def extract_job_id(job_url: str) -> str:
@@ -526,7 +554,7 @@ def save_jobs_to_database(jobs: list, db: JobDatabase) -> tuple[int, int]:
 
 
 def scrape_multiple_pages(page: Page, base_url: str, db: JobDatabase, 
-                         max_pages: int, page_increment: int) -> list:
+                         max_pages: int, page_increment: int, start_page: int = 1) -> list:
     """
     Scrape jobs from multiple pages with pagination.
     
@@ -536,19 +564,22 @@ def scrape_multiple_pages(page: Page, base_url: str, db: JobDatabase,
         db: JobDatabase instance
         max_pages: Maximum number of pages to scrape
         page_increment: Number to increment 'start' parameter by
+        start_page: Page number to start from (1-based, default: 1)
         
     Returns:
         List of all scraped jobs
     """
     all_jobs = []
-    start_value = 0
+    # Convert start_page (1-based) to start_value (0-based, in increments of page_increment)
+    start_value = (start_page - 1) * page_increment
     pages_scraped = 0
     
     # Remove existing start parameter from base URL
     base_url = base_url.split('&start=')[0] if '&start=' in base_url else base_url
     
     for page_num in range(max_pages):
-        print(f"\n📄 Scraping page {page_num + 1} (start={start_value})...")
+        current_page_number = start_page + page_num
+        print(f"\n📄 Scraping page {current_page_number} (start={start_value})...")
         
         # Build URL with current start value
         if '?' in base_url:
@@ -578,7 +609,7 @@ def scrape_multiple_pages(page: Page, base_url: str, db: JobDatabase,
         # Save to database
         print(f"  💾 Saving {len(jobs_on_page)} jobs to database...")
         new_count, updated_count = save_jobs_to_database(jobs_on_page, db)
-        print(f"  ✅ Page {page_num + 1}: {new_count} new, {updated_count} updated")
+        print(f"  ✅ Page {current_page_number}: {new_count} new, {updated_count} updated")
         
         # Move to next page
         start_value += page_increment
@@ -660,6 +691,7 @@ def main():
     print("="*60)
     print(f"\nSearching for: {SEARCH_KEYWORDS}")
     print(f"Location: {SEARCH_LOCATION}")
+    print(f"Starting from page: {START_PAGE}")
     print(f"Max pages: {MAX_PAGES}\n")
     
     try:
@@ -720,7 +752,7 @@ def main():
             
             # Scrape jobs with pagination
             print("\n🔍 Starting job scraping...")
-            all_jobs = scrape_multiple_pages(page, final_url, db, MAX_PAGES, PAGE_INCREMENT)
+            all_jobs = scrape_multiple_pages(page, final_url, db, MAX_PAGES, PAGE_INCREMENT, START_PAGE)
             
             # Print summary
             print_summary(all_jobs, db)

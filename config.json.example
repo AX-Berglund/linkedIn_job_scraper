@@ -1,0 +1,10 @@
+{
+  "search": {
+    "keywords": "software engineer",
+    "location": "New York",
+    "max_pages": 5,
+    "start_page": 1
+  },
+  "note": "Copy this file to config.json and edit the values above to customize your job search. start_page lets you resume from a specific page (e.g., set to 11 to start from page 11). The page_increment is fixed at 50 (LinkedIn's standard pagination)."
+}
+
