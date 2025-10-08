@@ -23,7 +23,7 @@ Automated LinkedIn job scraper that logs in, searches for jobs, and saves them t
 
 1. **Clone the repository:**
    ```bash
-   git clone <your-repo-url>
+   git clone https://github.com/AX-Berglund/linkedIn_job_scraper
    cd linkedIn_job_scraper
    ```
 
