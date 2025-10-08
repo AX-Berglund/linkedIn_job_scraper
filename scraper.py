@@ -41,22 +41,24 @@ class LinkedInScraper:
         """Context manager entry."""
         self.playwright = sync_playwright().start()
         
-        # Launch browser - prefer WebKit (Safari) on macOS, fallback to Chromium
+        # Launch browser - prefer Chromium for stability
         try:
-            # WebKit is more stable on macOS
-            self.browser = self.playwright.webkit.launch(
-                headless=self.headless
+            self.browser = self.playwright.chromium.launch(
+                headless=self.headless,
+                args=[
+                    '--disable-blink-features=AutomationControlled',
+                ] if self.headless else []
             )
-            print("  🌐 Using WebKit (Safari) engine")
-        except Exception as webkit_error:
-            print(f"  ⚠️  WebKit unavailable, trying Chromium: {webkit_error}")
+            print("  🌐 Using Chromium engine")
+        except Exception as chromium_error:
+            print(f"  ⚠️  Chromium unavailable, trying WebKit: {chromium_error}")
             try:
-                self.browser = self.playwright.chromium.launch(
+                self.browser = self.playwright.webkit.launch(
                     headless=self.headless
                 )
-                print("  🌐 Using Chromium engine")
-            except Exception as chromium_error:
-                print(f"  ❌ Both browsers failed. WebKit: {webkit_error}, Chromium: {chromium_error}")
+                print("  🌐 Using WebKit (Safari) engine")
+            except Exception as webkit_error:
+                print(f"  ❌ Both browsers failed. Chromium: {chromium_error}, WebKit: {webkit_error}")
                 raise
         
         # Check if we have a saved session
@@ -197,14 +199,56 @@ class LinkedInScraper:
         print(f"\n🔍 Scraping: {url}")
         
         try:
-            # Navigate to the page with a longer timeout
-            print("  ⏳ Loading page...")
-            self.page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            # If logged in, navigate more carefully to avoid blank page
+            if self.is_logged_in:
+                print("  🔐 Navigating as authenticated user...")
+                current_url = self.page.url
+                
+                # If this is the first job search after login, go through jobs home first
+                if "feed" in current_url or "login" in current_url:
+                    print("  🏠 Going to LinkedIn Jobs home first...")
+                    self.page.goto("https://www.linkedin.com/jobs/", wait_until="networkidle", timeout=30000)
+                    time.sleep(3)
+                
+            # Navigate to the jobs page
+            print("  ⏳ Loading job search page...")
+            
+            # Try navigation with different wait strategies
+            try:
+                self.page.goto(url, wait_until="networkidle", timeout=45000)
+            except:
+                # If networkidle fails, try with just load
+                print("  🔄 Retrying with different load strategy...")
+                self.page.goto(url, wait_until="load", timeout=30000)
+            
+            # Give extra time for JavaScript-heavy pages
+            time.sleep(4)
             
             # Check if we got redirected to login
             current_url = self.page.url
             if "/authwall" in current_url or "/login" in current_url:
                 print("  ⚠️  LinkedIn is asking for login. Trying to continue anyway...")
+            
+            # Check if page actually loaded or is blank
+            page_content = self.page.content()
+            if len(page_content) < 1000:  # Page is essentially blank
+                print("  ⚠️  Page appears blank (very small content)")
+                print("  🔄 Attempting full page reload...")
+                
+                # Try going to jobs home first, then to search
+                if self.is_logged_in:
+                    self.page.goto("https://www.linkedin.com/jobs/", wait_until="domcontentloaded", timeout=30000)
+                    time.sleep(2)
+                
+                # Now navigate to the actual search
+                self.page.goto(url, wait_until="domcontentloaded", timeout=45000)
+                time.sleep(5)
+                
+                # Check again
+                page_content = self.page.content()
+                if len(page_content) < 1000:
+                    print("  ❌ Page still blank after retry, skipping this search")
+                    return []
             
             # Wait for job results to appear - try multiple selectors
             print("  ⏳ Waiting for job listings to load...")
@@ -212,16 +256,17 @@ class LinkedInScraper:
             # Wait for any of these selectors to appear
             job_list_selectors = [
                 ".jobs-search__results-list",
-                ".scaffold-layout__list-container",
+                ".scaffold-layout__list-container", 
                 ".jobs-search-results-list",
                 "ul[class*='jobs']",
-                "[data-test-component='jobs-search-results-list']"
+                "[data-test-component='jobs-search-results-list']",
+                ".jobs-search-results__list"  # Another common selector
             ]
             
             loaded = False
             for selector in job_list_selectors:
                 try:
-                    self.page.wait_for_selector(selector, timeout=10000)
+                    self.page.wait_for_selector(selector, timeout=15000)
                     print(f"  ✅ Job list loaded (found: {selector})")
                     loaded = True
                     break
@@ -229,9 +274,19 @@ class LinkedInScraper:
                     continue
             
             if not loaded:
-                print("  ⚠️  Job list container not found, waiting longer...")
-                time.sleep(5)
+                print("  ⚠️  Job list container not found, checking page state...")
                 
+                # Check what's actually on the page
+                page_text = self.page.inner_text("body")
+                if "sign in" in page_text.lower() and len(page_text) < 5000:
+                    print("  ⚠️  Page requires authentication (session may have expired)")
+                elif len(page_text) < 500:
+                    print("  ⚠️  Page is mostly empty, may not have loaded correctly")
+                    print(f"     Current URL: {self.page.url}")
+                else:
+                    print("  ℹ️  Page loaded but job list not found, continuing...")
+                
+                time.sleep(3)
             else:
                 # Give JavaScript time to render the found elements
                 time.sleep(2)

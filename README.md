@@ -72,7 +72,7 @@ cd linkedIn_job_scraper
 
 ```bash
 pip install -r requirements.txt
-playwright install webkit
+playwright install chromium
 ```
 
 ### 3. Set up LinkedIn authentication (recommended)

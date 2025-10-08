@@ -7,13 +7,219 @@ Use this to verify Playwright is working on your system.
 from playwright.sync_api import sync_playwright
 import time
 import os
+import re
 from dotenv import load_dotenv
+from database import JobDatabase
 
 # Load environment variables from .env file
 load_dotenv()
 
+def extract_job_id(job_url: str) -> str:
+    """Extract job ID from LinkedIn job URL."""
+    match = re.search(r'/jobs/view/(\d+)', job_url)
+    if match:
+        return match.group(1)
+    # Try alternative format
+    match = re.search(r'currentJobId=(\d+)', job_url)
+    if match:
+        return match.group(1)
+    return None
+
+
+def scrape_jobs_from_page(page):
+    """
+    Scrape job information from the current LinkedIn jobs page.
+    
+    Args:
+        page: Playwright page object
+        
+    Returns:
+        List of job dictionaries
+    """
+    jobs = []
+    
+    try:
+        # Try multiple selectors for the job list container
+        job_list_selectors = [
+            '.jobs-search__results-list',
+            '.scaffold-layout__list-container',
+            'ul.jobs-search-results__list',
+            '[data-job-search-results]'
+        ]
+        
+        for selector in job_list_selectors:
+            try:
+                page.wait_for_selector(selector, timeout=5000)
+                print(f"  ✅ Found job list with selector: {selector}")
+                break
+            except:
+                continue
+        
+        time.sleep(3)  # Let the page fully settle
+        
+        # Try multiple selectors for job cards
+        job_card_selectors = [
+            'li.jobs-search-results__list-item',
+            'li[data-occludable-job-id]',
+            'div.job-card-container',
+            'li.scaffold-layout__list-item'
+        ]
+        
+        job_cards = None
+        for selector in job_card_selectors:
+            cards = page.locator(selector).all()
+            if len(cards) > 0:
+                job_cards = cards
+                print(f"  📋 Found {len(job_cards)} job cards with selector: {selector}")
+                break
+        
+        if not job_cards:
+            print("  ⚠️  Could not find any job cards")
+            return jobs
+        
+        for idx, card in enumerate(job_cards, 1):
+            try:
+                # Try to get job ID from data attribute first
+                job_id = card.get_attribute('data-occludable-job-id')
+                
+                # Extract job link - try multiple selectors
+                job_link_selectors = [
+                    'a.job-card-list__title',
+                    'a.job-card-container__link',
+                    'a[href*="/jobs/view/"]',
+                    'a.scaffold-layout__list-link'
+                ]
+                
+                job_link = None
+                job_url = None
+                title = None
+                
+                for link_selector in job_link_selectors:
+                    try:
+                        link = card.locator(link_selector).first
+                        if link.count() > 0:
+                            job_link = link
+                            job_url = link.get_attribute('href')
+                            try:
+                                title = link.inner_text().strip()
+                            except:
+                                # Try to get title from aria-label or other attributes
+                                title = link.get_attribute('aria-label') or "Unknown Title"
+                            break
+                    except:
+                        continue
+                
+                if not job_url:
+                    continue
+                
+                # Extract job ID if not found in data attribute
+                if not job_id:
+                    job_id = extract_job_id(job_url)
+                if not job_id:
+                    print(f"    ⚠️  Could not extract job ID")
+                    continue
+                
+                # Extract company name - try multiple selectors
+                company_selectors = [
+                    'div.artdeco-entity-lockup__subtitle',  # Most common - company name is here
+                    '.artdeco-entity-lockup__subtitle',
+                    '.job-card-container__primary-description',
+                    '.job-card-container__company-name',
+                    'span.job-card-container__company-name',
+                    'a[data-test-id="job-card-company-name"]',
+                    'span[class*="company"]',
+                    'div[class*="company"]'
+                ]
+                company = "Unknown"
+                for comp_selector in company_selectors:
+                    try:
+                        comp_elem = card.locator(comp_selector).first
+                        if comp_elem.count() > 0:
+                            company = comp_elem.inner_text().strip()
+                            if company and company != "Unknown" and len(company) > 0:
+                                break
+                    except:
+                        continue
+                
+                # If still unknown, try to get from any text that looks like a company
+                if company == "Unknown":
+                    try:
+                        # Look for any div or span that might contain company info
+                        all_text_elems = card.locator('span, div').all()
+                        for elem in all_text_elems[:20]:  # Check first 20 elements
+                            try:
+                                text = elem.inner_text().strip()
+                                # Skip if it's the title or empty
+                                if text and text != title and len(text) > 2 and len(text) < 100:
+                                    # Check if it looks like a company name (not a location, not a date)
+                                    if not any(x in text.lower() for x in ['ago', 'promoted', 'matches', 'applicant', 'easy apply']):
+                                        company = text
+                                        break
+                            except:
+                                continue
+                    except:
+                        pass
+                
+                # Extract location - try multiple selectors
+                location_selectors = [
+                    'div.artdeco-entity-lockup__caption ul li',  # Most common - location is in caption
+                    '.artdeco-entity-lockup__caption li',
+                    '.job-card-container__metadata-item',
+                    'li.job-card-container__metadata-item',
+                    'ul.job-card-container__metadata-wrapper li',
+                    'span[class*="location"]'
+                ]
+                location = "Unknown"
+                for loc_selector in location_selectors:
+                    try:
+                        loc_elem = card.locator(loc_selector).first
+                        if loc_elem.count() > 0:
+                            location = loc_elem.inner_text().strip()
+                            if location and len(location) > 0:
+                                break
+                    except:
+                        continue
+                
+                # Extract posted date (if available)
+                posted_date = None
+                try:
+                    posted_elem = card.locator('time')
+                    if posted_elem.count() > 0:
+                        posted_date = posted_elem.first.get_attribute('datetime')
+                except:
+                    pass
+                
+                # Make sure we have minimum required data
+                if not title or title == "Unknown Title":
+                    print(f"    ⚠️  Skipping job {idx} - no title found")
+                    continue
+                
+                job_data = {
+                    'job_id': job_id,
+                    'title': title,
+                    'company': company,
+                    'location': location,
+                    'link': f"https://www.linkedin.com/jobs/view/{job_id}",  # Database expects 'link' not 'url'
+                    'date_posted': posted_date,
+                    'description': '',  # Would need to click into job to get full description
+                    'search_url': page.url
+                }
+                
+                jobs.append(job_data)
+                print(f"    ✅ {idx}. {title[:50]}{'...' if len(title) > 50 else ''} at {company}")
+                
+            except Exception as e:
+                print(f"    ⚠️  Error extracting job {idx}: {e}")
+                continue
+        
+    except Exception as e:
+        print(f"  ❌ Error scraping page: {e}")
+    
+    return jobs
+
+
 print("="*60)
-print("🌐 Simple Browser Test")
+print("🔗 LinkedIn Job Scraper with Browser")
 print("="*60)
 print("\nOpening Chrome and navigating to LinkedIn...")
 print("Press Ctrl+C to close the browser.\n")
@@ -262,9 +468,88 @@ try:
                                 print("✅ Search results loaded!")
                                 print(f"Final URL: {page.url}")
                                 
+                                # Initialize database
+                                print("\n💾 Initializing database...")
+                                db = JobDatabase()
+                                print("✅ Database ready")
+                                
+                                # Start scraping jobs with pagination
+                                print("\n🔍 Starting job scraping...")
+                                all_jobs = []
+                                start_value = 0
+                                page_increment = 50
+                                max_pages = 10  # Safety limit - scrape max 10 pages (500 jobs)
+                                pages_scraped = 0
+                                
+                                # Get the base URL (without start parameter)
+                                base_url = page.url.split('&start=')[0] if '&start=' in page.url else page.url
+                                
+                                for page_num in range(max_pages):
+                                    print(f"\n📄 Scraping page {page_num + 1} (start={start_value})...")
+                                    
+                                    # Build URL with current start value
+                                    if '?' in base_url:
+                                        current_url = f"{base_url}&start={start_value}"
+                                    else:
+                                        current_url = f"{base_url}?start={start_value}"
+                                    
+                                    # Navigate to page
+                                    try:
+                                        page.goto(current_url, timeout=60000)
+                                        page.wait_for_load_state('domcontentloaded', timeout=20000)
+                                        time.sleep(2)
+                                    except Exception as page_nav_e:
+                                        print(f"  ⚠️  Error navigating to page: {page_nav_e}")
+                                        break
+                                    
+                                    # Scrape jobs from current page
+                                    jobs_on_page = scrape_jobs_from_page(page)
+                                    
+                                    if not jobs_on_page:
+                                        print("  ℹ️  No jobs found on this page. Reached end of results.")
+                                        break
+                                    
+                                    all_jobs.extend(jobs_on_page)
+                                    pages_scraped += 1
+                                    
+                                    # Save to database
+                                    print(f"  💾 Saving {len(jobs_on_page)} jobs to database...")
+                                    new_count = 0
+                                    updated_count = 0
+                                    
+                                    for job in jobs_on_page:
+                                        if db.insert_job(job):
+                                            new_count += 1
+                                        else:
+                                            db.update_last_seen(job['job_id'])
+                                            updated_count += 1
+                                    
+                                    print(f"  ✅ Page {page_num + 1}: {new_count} new, {updated_count} updated")
+                                    
+                                    # Move to next page
+                                    start_value += page_increment
+                                    
+                                    # Small delay between pages
+                                    time.sleep(2)
+                                
+                                # Print summary
+                                print("\n" + "="*60)
+                                print("📊 Scraping Summary")
+                                print("="*60)
+                                print(f"  Pages scraped:       {pages_scraped}")
+                                print(f"  Total jobs found:    {len(all_jobs)}")
+                                
+                                stats = db.get_job_stats()
+                                print(f"\n  Total in database:   {stats['total']}")
+                                print(f"  Active jobs:         {stats['active']}")
+                                print(f"  Applied to:          {stats['applied']}")
+                                print("="*60)
+                                
                             except Exception as nav_e:
-                                print(f"⚠️  Error navigating to jobs page: {nav_e}")
-                                print("Current URL:", page.url)
+                                print(f"⚠️  Error in job scraping process: {nav_e}")
+                                print(f"Current URL: {page.url}")
+                                import traceback
+                                traceback.print_exc()
                                 
                     except Exception as btn_e:
                         print(f"⚠️  Error in sign in process: {btn_e}")
@@ -277,13 +562,16 @@ try:
             traceback.print_exc()
         
         print("\n" + "="*60)
-        print("Browser is now open. You can interact with it.")
-        print("Press Ctrl+C in this terminal to close.")
+        print("✅ Scraping complete!")
+        print("Browser will stay open for 10 seconds for you to review...")
+        print("Press Ctrl+C to close immediately.")
         print("="*60 + "\n")
         
-        # Keep the browser open
-        while True:
+        # Keep the browser open for review
+        for i in range(10, 0, -1):
+            print(f"  Closing in {i} seconds...", end='\r')
             time.sleep(1)
+        print("\n👋 Closing browser...")        
             
 except KeyboardInterrupt:
     print("\n\n👋 Closing browser...")

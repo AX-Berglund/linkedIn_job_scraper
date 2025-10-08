@@ -38,6 +38,7 @@ def build_linkedin_url(keywords: str, location: str) -> str:
         Full LinkedIn job search URL
     """
     base_url = "https://www.linkedin.com/jobs/search/"
+    # LinkedIn uses + for spaces (form encoding style)
     params = f"?keywords={quote_plus(keywords)}&location={quote_plus(location)}"
     return base_url + params
 
