@@ -100,11 +100,27 @@ def scrape_jobs_from_page(page):
                         if link.count() > 0:
                             job_link = link
                             job_url = link.get_attribute('href')
-                            try:
-                                title = link.inner_text().strip()
-                            except:
-                                # Try to get title from aria-label or other attributes
-                                title = link.get_attribute('aria-label') or "Unknown Title"
+                            # Prefer aria-label to avoid duplicate text from multiple spans
+                            title = link.get_attribute('aria-label')
+                            if not title or len(title) == 0:
+                                try:
+                                    # Fallback to inner text, but clean it up
+                                    title = link.inner_text().strip()
+                                    # Remove duplicate text (sometimes title appears twice)
+                                    words = title.split('\n')
+                                    if len(words) > 1 and words[0].strip() == words[1].strip():
+                                        title = words[0].strip()
+                                except:
+                                    title = "Unknown Title"
+                            
+                            # Clean up common artifacts
+                            if title:
+                                # Remove "with verification" and similar artifacts
+                                title = title.replace(' with verification', '')
+                                title = title.replace('\nwith verification', '')
+                                # Remove extra whitespace and newlines
+                                title = ' '.join(title.split())
+                            
                             break
                     except:
                         continue
@@ -136,6 +152,10 @@ def scrape_jobs_from_page(page):
                         comp_elem = card.locator(comp_selector).first
                         if comp_elem.count() > 0:
                             company = comp_elem.inner_text().strip()
+                            # Clean up company name
+                            if company:
+                                company = ' '.join(company.split())  # Remove extra whitespace
+                                company = company.replace(' with verification', '')
                             if company and company != "Unknown" and len(company) > 0:
                                 break
                     except:
@@ -175,6 +195,9 @@ def scrape_jobs_from_page(page):
                         loc_elem = card.locator(loc_selector).first
                         if loc_elem.count() > 0:
                             location = loc_elem.inner_text().strip()
+                            # Clean up location
+                            if location:
+                                location = ' '.join(location.split())  # Remove extra whitespace
                             if location and len(location) > 0:
                                 break
                     except:
