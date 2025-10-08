@@ -1,181 +1,177 @@
-# LinkedIn Jobs Tracker
+# LinkedIn Job Scraper
 
-A Python-based LinkedIn job scraper that saves job postings to a local SQLite database.  
-Runs daily to keep track of **new**, **updated**, and **expired** job listings for your chosen searches.
-
----
+Automated LinkedIn job scraper that logs in, searches for jobs, and saves them to a SQLite database.
 
 ## 🚀 Features
 
-- Scrape job postings from LinkedIn search results (via Playwright).
-- Store all jobs in a local SQLite database.
-- Daily update logic:
-  - Add **new** job postings.
-  - Refresh `last_seen` date for existing jobs.
-  - Mark jobs as **expired** when they disappear.
-- Local, lightweight, and easy to extend.
+- ✅ Automated LinkedIn login
+- ✅ Cookie consent handling
+- ✅ Job search with custom keywords and location
+- ✅ Pagination support (scrapes multiple pages)
+- ✅ Extracts: Job title, company, location, job ID, URL, posted date
+- ✅ Saves to SQLite database with duplicate detection
+- ✅ Updates existing jobs (last_seen tracking)
+- ✅ Clean data extraction (no duplicates or artifacts)
 
----
+## 📋 Requirements
 
-## 🛠️ Tech Stack
+- Python 3.7+
+- Chrome browser installed
+- LinkedIn account
 
-- **Python 3.10+**
-- [Playwright](https://playwright.dev/python/) for browser automation & scraping.
-- **SQLite** for lightweight local database storage.
+## 🔧 Installation
 
----
+1. **Clone the repository:**
+   ```bash
+   git clone <your-repo-url>
+   cd linkedIn_job_scraper
+   ```
 
-## 📂 Project Structure
+2. **Install dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. **Create `.env` file** with your LinkedIn credentials:
+   ```bash
+   cat > .env << 'EOF'
+   # LinkedIn Credentials
+   LINKEDIN_EMAIL=your_email@example.com
+   LINKEDIN_PASSWORD=your_password_here
+   EOF
+   ```
+   
+   Replace `your_email@example.com` and `your_password_here` with your actual credentials.
+
+## 🎯 Usage
+
+### Run the scraper:
+```bash
+python linkedin_scraper.py
+```
+
+The scraper will:
+1. Open Chrome browser
+2. Navigate to LinkedIn
+3. Click "Reject" on cookie consent
+4. Log in with your credentials
+5. Search for "data scientist" jobs in "Stockholm"
+6. Scrape up to 10 pages (500 jobs)
+7. Save all jobs to `jobs.db`
+
+### View scraped jobs:
+```bash
+python view_jobs.py
+```
+
+Options:
+- View all jobs
+- View jobs by status (not_applied, applied)
+- Mark jobs as applied
+
+## 📁 Project Structure
 
 ```
 linkedIn_job_scraper/
-├── README.md              # Project overview
-├── USAGE.md              # Detailed usage guide
+├── linkedin_scraper.py    # Main scraper script
+├── database.py            # Database management
+├── view_jobs.py          # View and manage scraped jobs
+├── jobs.db               # SQLite database (auto-created)
 ├── requirements.txt      # Python dependencies
-├── config.json          # Your search URLs and settings
-├── scrape_jobs.py       # Main script to run
-├── database.py          # Database operations
-├── scraper.py           # LinkedIn scraping logic
-├── test_setup.py        # Setup verification script
-├── jobs.db              # SQLite database (created on first run)
-└── .gitignore
+├── .env                  # Your credentials (create this)
+└── README.md            # This file
 ```
 
-### Database Schema
+## 🔧 Customization
 
-```sql
-CREATE TABLE jobs (
-    job_id TEXT PRIMARY KEY,
-    title TEXT,
-    company TEXT,
-    location TEXT,
-    link TEXT,
-    date_posted TEXT,
-    last_seen TEXT,
-    status TEXT DEFAULT 'not_applied',
-    applied_on TEXT,
-    expired INTEGER DEFAULT 0
-);
+### Change search parameters:
+
+Edit the search parameters in `linkedin_scraper.py` (line ~249):
+
+```python
+search_params = "&keywords=data%20scientist&location=Stockholm&refresh=true&start=100"
 ```
 
+To search for different jobs:
+- Change `keywords=data%20scientist` to your desired job (spaces = %20)
+- Change `location=Stockholm` to your desired location
+- Keep `refresh=true` for fresh results
 
-## ⚡ Getting Started
+### Adjust pagination:
 
-### 1. Clone the repo
+Edit `max_pages` in `linkedin_scraper.py` (line ~362):
 
-```bash
-git clone https://github.com/AX-Berglund/linkedIn_job_scraper.git
-cd linkedIn_job_scraper
+```python
+max_pages = 10  # Scrape up to 10 pages (500 jobs)
 ```
 
-### 2. Install dependencies
+### Change page increment:
 
-```bash
-pip install -r requirements.txt
-playwright install chromium
+Edit `page_increment` in `linkedin_scraper.py` (line ~361):
+
+```python
+page_increment = 50  # LinkedIn shows ~25 jobs per page, but pagination works in 50s
 ```
 
-### 3. Set up LinkedIn authentication (recommended)
+## 📊 Database Schema
 
-LinkedIn may ask you to sign in. To bypass this:
+The `jobs` table stores:
+- `job_id` (PRIMARY KEY) - LinkedIn job ID
+- `title` - Job title
+- `company` - Company name
+- `location` - Job location
+- `link` - LinkedIn job URL
+- `date_posted` - When job was posted (if available)
+- `last_seen` - Last time this job was found in search
+- `status` - Application status (not_applied, applied)
+- `applied_on` - Date you applied (if marked as applied)
+- `expired` - Whether job is still active (0=active, 1=expired)
 
-```bash
-python setup_auth.py
-```
+## 🛡️ Security Notes
 
-This will securely store your LinkedIn credentials in a `.env` file.
+- **Never commit your `.env` file** - It's already in `.gitignore`
+- Keep your LinkedIn credentials secure
+- Don't share your `jobs.db` if it contains sensitive information
 
-**⚠️ Note:** Automating LinkedIn login may violate their ToS. Use for personal purposes only.
+## ⚠️ Important Notes
 
-**Alternative:** Skip this step and deal with manual login when needed.
+- LinkedIn may rate-limit or block automated access
+- Use responsibly and respect LinkedIn's Terms of Service
+- The browser window stays visible (not headless) to appear more human-like
+- Consider adding delays between runs to avoid detection
 
-### 4. Test your setup (optional but recommended)
+## 🐛 Troubleshooting
 
-```bash
-python test_setup.py
-```
+### Browser won't open:
+- Make sure Chrome is installed
+- Install Playwright browsers: `playwright install chromium`
 
-### 5. Configure your search
+### Login fails:
+- Check your `.env` credentials
+- Try logging in manually first to verify account
+- LinkedIn may require email/SMS verification
 
-Edit `config.json` and add your job searches with keywords and location:
+### No jobs found:
+- Check your search parameters (keywords, location)
+- LinkedIn search results may have changed structure
+- Try adjusting the CSS selectors in `scrape_jobs_from_page()` function
 
-```json
-{
-  "searches": [
-    {
-      "keywords": "data scientist",
-      "location": "Stockholm"
-    },
-    {
-      "keywords": "machine learning engineer",
-      "location": "Stockholm"
-    }
-  ],
-  "scrape_settings": {
-    "headless": true,
-    "max_scroll_attempts": 5,
-    "scroll_delay_ms": 2000,
-    "page_load_timeout_ms": 30000
-  }
-}
-```
+### "Target has been closed" error:
+- This is a Playwright/Chrome issue on macOS
+- The script already handles this with proper launch arguments
+- If persists, try updating Playwright: `pip install --upgrade playwright`
 
-**💡 It's that simple!** Just specify keywords and location - the scraper builds the LinkedIn URLs automatically.
+## 📝 License
 
-### 6. Run the scraper
+MIT License - Feel free to use and modify as needed.
 
-```bash
-python scrape_jobs.py
-```
+## 🤝 Contributing
 
-This will:
+Contributions welcome! Feel free to:
+- Report bugs
+- Suggest features
+- Submit pull requests
 
-* Open LinkedIn in a headless Chromium browser
-* Scrape jobs from your saved searches
-* Save results in `jobs.db`
-* Track new, updated, and expired jobs
+## 📧 Support
 
-📖 **For detailed usage instructions, see [USAGE.md](USAGE.md)**
-
----
-
-## 📊 Example Workflow
-
-1. **Day 1**: Run `python scrape_jobs.py`
-   - Scrapes 150 jobs matching your search
-   - All saved to database
-
-2. **Day 2**: Run again
-   - Finds 160 jobs total
-   - 10 new jobs → added to database
-   - 145 existing jobs → `last_seen` updated
-   - 5 old jobs gone → marked as expired
-
-3. **View your data**:
-   ```bash
-   sqlite3 jobs.db "SELECT title, company, location FROM jobs WHERE expired = 0 LIMIT 10;"
-   ```
-
-4. **Schedule daily runs** (see [USAGE.md](USAGE.md) for cron/GitHub Actions setup)
-
----
-
-## 🛣️ Roadmap
-
-* [x] **Phase 1: Scrape LinkedIn jobs & save to SQLite** ✅ COMPLETE
-  - [x] Playwright-based scraper
-  - [x] SQLite database with job tracking
-  - [x] Daily update logic (new/updated/expired)
-  - [x] Configuration system
-  - [x] Comprehensive documentation
-* [ ] **Phase 2: Add LLM-powered filters** (rank jobs by relevance)
-* [ ] **Phase 3: Prefill job applications** with stored profile data
-* [ ] **Phase 4: Semi-automated or fully automated applications**
-
----
-
-## ⚠️ Disclaimer
-
-This project is intended **for educational and personal use only**.
-Scraping or automating interactions with LinkedIn may violate their Terms of Service.
-Use responsibly and at your own risk.
+For issues or questions, please open an issue on GitHub.
